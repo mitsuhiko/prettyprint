@@ -45,13 +45,13 @@
             def __pretty__(self, p, cycle):
                 if cycle:
                     p.text('MyList(...)')
-                else:
-                    with p.group(8, 'MyList([', '])'):
-                        for idx, item in enumerate(self):
-                            if idx:
-                                p.text(',')
-                                p.breakable()
-                            p.pretty(item)
+                    return
+                with p.group(8, 'MyList([', '])'):
+                    for idx, item in enumerate(self):
+                        if idx:
+                            p.text(',')
+                            p.breakable()
+                        p.pretty(item)
 
     The `cycle` parameter is `True` if pretty detected a cycle.  You *have* to
     react to that or the result is an infinite loop.  `p.text()` just adds
