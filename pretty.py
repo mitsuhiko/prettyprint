@@ -37,14 +37,8 @@
             def __pretty__(self, p, cycle):
                 ...
 
-    Depending on the python version you want to support you have two
-    possibilities.  The following list shows the python 2.5 version and the
-    compatibility one.
-
-
     Here the example implementation of a `__pretty__` method for a list
-    subclass for python 2.5 and higher (python 2.5 requires the with statement
-    __future__ import)::
+    subclass::
 
         class MyList(list):
 
@@ -68,37 +62,17 @@
 
     The first parameter to the `group` function specifies the extra indentation
     of the next line.  In this example the next item will either be not
-    breaked (if the items are short enough) or aligned with the right edge of
+    broken (if the items are short enough) or aligned with the right edge of
     the opening bracked of `MyList`.
 
-    If you want to support python 2.4 and lower you can use this code::
-
-        class MyList(list):
-
-            def __pretty__(self, p, cycle):
-                if cycle:
-                    p.text('MyList(...)')
-                else:
-                    p.begin_group(8, 'MyList([')
-                    for idx, item in enumerate(self):
-                        if idx:
-                            p.text(',')
-                            p.breakable()
-                        p.pretty(item)
-                    p.end_group(8, '])')
-
     If you just want to indent something you can use the group function
-    without open / close parameters.  Under python 2.5 you can also use this
-    code::
+    without open / close parameters or `indent` with the `with` statement::
 
         with p.indent(2):
             ...
 
-    Or under python2.4 you might want to modify ``p.indentation`` by hand but
-    this is rather ugly.
 
-
-    :copyright: 2007 by Armin Ronacher.
+    :copyright: 2011 by Armin Ronacher.
     :license: BSD License.
 """
 import sys
@@ -299,11 +273,6 @@ class RepresentationPrinter(PrettyPrinter):
         self.verbose = verbose
         self.stack = []
 
-    def pretty_impl(self, obj, cycle):
-        """Pretty prints a single object."""
-        printer = self.get_printer(obj)
-        return printer(obj, self, cycle)
-
     def get_printer(self, obj):
         """Returns the pretty printer for the given object."""
         obj_class = getattr(obj, '__class__', None) or type(obj)
@@ -319,6 +288,14 @@ class RepresentationPrinter(PrettyPrinter):
             if cls in _type_pprinters:
                 return _type_pprinters[cls]
         return _default_pprint
+
+    def pretty_impl(self, obj, cycle):
+        """Pretty prints a single object.  This is what :meth:`pretty`
+        calls internally.  The default implementation calls :meth:`get_printer`
+        to find the printer callable.
+        """
+        printer = self.get_printer(obj)
+        return printer(obj, self, cycle)
 
     def pretty(self, obj):
         """Pretty print the given object."""
