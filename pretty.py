@@ -101,13 +101,13 @@
     :copyright: 2007 by Armin Ronacher.
     :license: BSD License.
 """
-import __future__
 import sys
 import types
 import re
 import datetime
+import collections
 from StringIO import StringIO
-from collections import deque
+from contextlib import contextmanager
 
 
 __all__ = ['pretty', 'pprint', 'PrettyPrinter', 'RepresentationPrinter', 'for_type']
@@ -138,43 +138,7 @@ def pprint(obj, verbose=False, max_width=79, newline='\n'):
     sys.stdout.flush()
 
 
-# add python2.5 context managers if we have the with statement feature
-if hasattr(__future__, 'with_statement'): exec '''
-from __future__ import with_statement
-from contextlib import contextmanager
-
-class _PrettyPrinterBase(object):
-
-    @contextmanager
-    def indent(self, indent):
-        """with statement support for indenting/dedenting."""
-        self.indentation += indent
-        try:
-            yield
-        finally:
-            self.indentation -= indent
-
-    @contextmanager
-    def group(self, indent=0, open='', close=''):
-        """like begin_group / end_group but for the with statement."""
-        self.begin_group(indent, open)
-        try:
-            with self.indent(indent):
-                yield
-        finally:
-            self.end_group(indent, close)
-'''
-else:
-    class _PrettyPrinterBase(object):
-
-        def _unsupported(self, *a, **kw):
-            """unsupported operation"""
-            raise RuntimeError('not available in this python version')
-        group = indent = _unsupported
-        del _unsupported
-
-
-class PrettyPrinter(_PrettyPrinterBase):
+class PrettyPrinter(object):
     """
     Baseclass for the `RepresentationPrinter` prettyprinter that is used to
     generate pretty reprs of objects.  Contrary to the `RepresentationPrinter`
@@ -188,7 +152,7 @@ class PrettyPrinter(_PrettyPrinterBase):
         self.newline = newline
         self.output_width = 0
         self.buffer_width = 0
-        self.buffer = deque()
+        self.buffer = collections.deque()
 
         root_group = Group(0)
         self.group_stack = [root_group]
@@ -208,6 +172,25 @@ class PrettyPrinter(_PrettyPrinterBase):
                 x = self.buffer.popleft()
                 self.output_width = x.output(self.output, self.output_width)
                 self.buffer_width -= x.width
+
+    @contextmanager
+    def indent(self, indent):
+        """with statement support for indenting/dedenting."""
+        self.indentation += indent
+        try:
+            yield
+        finally:
+            self.indentation -= indent
+
+    @contextmanager
+    def group(self, indent=0, open='', close=''):
+        """like begin_group / end_group but for the with statement."""
+        self.begin_group(indent, open)
+        try:
+            with self.indent(indent):
+                yield
+        finally:
+            self.end_group(indent, close)
 
     def text(self, obj):
         """Add literal text to the output."""
@@ -316,6 +299,27 @@ class RepresentationPrinter(PrettyPrinter):
         self.verbose = verbose
         self.stack = []
 
+    def pretty_impl(self, obj, cycle):
+        """Pretty prints a single object."""
+        printer = self.get_printer(obj)
+        return printer(obj, self, cycle)
+
+    def get_printer(self, obj):
+        """Returns the pretty printer for the given object."""
+        obj_class = getattr(obj, '__class__', None) or type(obj)
+        if hasattr(obj_class, '__pretty__'):
+            return obj_class.__pretty__
+        try:
+            printer = _singleton_pprinters[obj]
+        except (TypeError, KeyError):
+            pass
+        else:
+            return printer
+        for cls in _get_mro(obj_class):
+            if cls in _type_pprinters:
+                return _type_pprinters[cls]
+        return _default_pprint
+
     def pretty(self, obj):
         """Pretty print the given object."""
         obj_id = id(obj)
@@ -323,19 +327,7 @@ class RepresentationPrinter(PrettyPrinter):
         self.stack.append(obj_id)
         self.begin_group()
         try:
-            obj_class = getattr(obj, '__class__', None) or type(obj)
-            if hasattr(obj_class, '__pretty__'):
-                return obj_class.__pretty__(obj, self, cycle)
-            try:
-                printer = _singleton_pprinters[obj_id]
-            except (TypeError, KeyError):
-                pass
-            else:
-                return printer(obj, self, cycle)
-            for cls in _get_mro(obj_class):
-                if cls in _type_pprinters:
-                    return _type_pprinters[cls](obj, self, cycle)
-            return _default_pprint(obj, self, cycle)
+            self.pretty_impl(obj, cycle)
         finally:
             self.end_group()
             self.stack.pop()
@@ -389,7 +381,7 @@ class Group(Printable):
 
     def __init__(self, depth):
         self.depth = depth
-        self.breakables = deque()
+        self.breakables = collections.deque()
         self.want_break = False
 
 
@@ -432,13 +424,13 @@ def _default_pprint(obj, p, cycle):
     The default print function.  Used if an object does not provide one and
     it's none of the builtin objects.
     """
-    klass = getattr(obj, '__class__', None) or type(obj)
-    if getattr(klass, '__repr__', None) not in _baseclass_reprs:
+    class_ = getattr(obj, '__class__', None) or type(obj)
+    if getattr(class_, '__repr__', None) not in _baseclass_reprs:
         # A user-provided repr.
         p.text(repr(obj))
         return
     p.begin_group(1, '<')
-    p.pretty(klass)
+    p.pretty(class_)
     p.text(' at 0x%x' % id(obj))
     if cycle:
         p.text(' ...')
@@ -590,13 +582,6 @@ def _exception_pprint(obj, p, cycle):
     p.end_group(step, ')')
 
 
-#: the exception base
-try:
-    _exception_base = BaseException
-except NameError:
-    _exception_base = Exception
-
-
 #: printers for builtin types
 _type_pprinters = {
     int:                        _repr_pprint,
@@ -621,13 +606,12 @@ _type_pprinters = {
     xrange:                     _repr_pprint,
     datetime.datetime:          _repr_pprint,
     datetime.timedelta:         _repr_pprint,
-    _exception_base:            _exception_pprint
+    BaseException:              _exception_pprint
 }
 
 
 def for_type(typ, func):
-    """
-    Add a pretty printer for a given type.
+    """Add a pretty printer for a given type.
     """
     oldfunc = _type_pprinters.get(typ, None)
     if func is not None:
@@ -637,14 +621,8 @@ def for_type(typ, func):
 
 
 #: printers for the default singletons
-_singleton_pprinters = dict.fromkeys(map(id, [None, True, False, Ellipsis,
-                                      NotImplemented]), _repr_pprint)
-
-
-#: get rid of the unused things
-del _PrettyPrinterBase, _repr_pprint, _seq_pprinter_factory, \
-    _dict_pprinter_factory, _super_pprint, _re_pattern_pprint, \
-    _type_pprint, _function_pprint, _exception_pprint, _exception_base
+_singleton_pprinters = dict.fromkeys([None, True, False, Ellipsis,
+                                      NotImplemented], _repr_pprint)
 
 
 if __name__ == '__main__':
