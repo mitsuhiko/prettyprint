@@ -134,7 +134,7 @@ class PrettyPrinter(object):
         self.indentation = 0
 
     def _break_outer_groups(self):
-        while self.max_width < self.output_width + .buffer_width:
+        while self.max_width < self.output_width + self.buffer_width:
             group = self.group_queue.deq()
             if not group:
                 return
