@@ -134,7 +134,7 @@ class PrettyPrinter(object):
         self.indentation = 0
 
     def _break_outer_groups(self):
-        while self.max_width < self.output_width + self.buffer_width:
+        while self.max_width < self.output_width + .buffer_width:
             group = self.group_queue.deq()
             if not group:
                 return
@@ -158,7 +158,11 @@ class PrettyPrinter(object):
 
     @contextmanager
     def group(self, indent=0, open='', close=''):
-        """like begin_group / end_group but for the with statement."""
+        """like begin_group / end_group but for the with statement::
+
+            with p.group():
+                ...
+        """
         self.begin_group(indent, open)
         try:
             with self.indent(indent):
@@ -202,22 +206,16 @@ class PrettyPrinter(object):
 
 
     def begin_group(self, indent=0, open=''):
-        """
-        Begin a group.  If you want support for python < 2.5 which doesn't has
-        the with statement this is the preferred way:
+        """Begin a group.  This is an alternative to the :meth:`group`
+        contextmanager::
 
             p.begin_group(1, '{')
             ...
             p.end_group(1, '}')
 
-        The python 2.5 expression would be this:
-
-            with p.group(1, '{', '}'):
-                ...
-
-        The first parameter specifies the indentation for the next line (usually
-        the width of the opening text), the second the opening text.  All
-        parameters are optional.
+        The first parameter specifies the indentation for the next line
+        (usually the width of the opening text), the second the opening text.
+        All parameters are optional.
         """
         if open:
             self.text(open)
